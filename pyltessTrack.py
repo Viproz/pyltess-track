@@ -87,51 +87,40 @@ if __name__ == "__main__":
     sampling_time = args.time
 
     # Look at for SDR devices
-    sdr_list = SoapySDR.Device.enumerate()
+#     sdr_list = SoapySDR.Device.enumerate()
     index=0
     sdr_devices = []
     print("")
     print("Available SDR devices: ")
 
-    for sdr in sdr_list:
-        if sdr["driver"]=="audio":
-            pass
-        else:
-            print("   - [%d] %s (%s)" % (index, sdr["label"], sdr["driver"]) )
-            sdr_devices.append(sdr)
-            index=index+1
+#     for sdr in sdr_list:
+#         if sdr["driver"]=="audio":
+#             pass
+#         else:
+#             print("   - [%d] %s (%s)" % (index, sdr["label"], sdr["driver"]) )
+#             sdr_devices.append(sdr)
+#             index=index+1
+# 
+#     if (len(sdr_devices)==0):
+#         print("[LTESSTRACK] Error, no devices found!")
+#         exit(-1)
+# 
+#     try:
+#         print("")
+#         if (args.source == -1):
+#             sdr_index=int(input('Choose SDR device [0-' + str(len(sdr_devices)-1) + ']: ' ))
+#         else:
+#             if (args.source > index-1):
+#                 print("[LTESSTRACK] Error: SDR Device index not found (max=%d)" % (index-1))
+#                 exit(-1)
+#             sdr_index=args.source
+#     except ValueError:
+#         print("[Error] Wrong SDR device index.")
+#         sys.exit(-1)
 
-    if (len(sdr_devices)==0):
-        print("[LTESSTRACK] Error, no devices found!")
-        exit(-1)
-
-    try:
-        print("")
-        if (args.source == -1):
-            sdr_index=int(input('Choose SDR device [0-' + str(len(sdr_devices)-1) + ']: ' ))
-        else:
-            if (args.source > index-1):
-                print("[LTESSTRACK] Error: SDR Device index not found (max=%d)" % (index-1))
-                exit(-1)
-            sdr_index=args.source
-    except ValueError:
-        print("[Error] Wrong SDR device index.")
-        sys.exit(-1)
-
-    args_sdr = sdr_devices[sdr_index]
-    print("[LTESSTRACK] SDR device selected: " + args_sdr['driver'] + " - " + args_sdr['label'])
+#     args_sdr = sdr_devices[sdr_index]
+#     print("[LTESSTRACK] SDR device selected: " + args_sdr['driver'] + " - " + args_sdr['label'])
     # Set SDR and read samples
-    sdr = SoapySDR.Device(args_sdr)
-    sdr.setSampleRate(SOAPY_SDR_RX, chan, int(fs))
-    sdr.setBandwidth(SOAPY_SDR_RX, chan, int(fs))
-    sdr.setFrequency(SOAPY_SDR_RX, chan, int(fc))
-    sdr.setGain(SOAPY_SDR_RX,chan,gain)
-
-    rxStream = sdr.setupStream(SOAPY_SDR_RX, SOAPY_SDR_CF32, [chan])
-    sdr.activateStream(rxStream)
-
-    rxBuffs = np.array([], np.complex64)
-    rxBuff = np.array([0]*AUX_BUFFER_SIZE, np.complex64)
 
     TOTAL_BUFFER_SIZE = int(fs*args.time)
 
@@ -139,17 +128,15 @@ if __name__ == "__main__":
 
     print("[LTESSTRACK] Reading for %d seconds at %d MHz with gain=%d ... " % (args.time, args.frequency, args.gain))
     acq_time = datetime.datetime.now()
+    
+    command = "rtl_sdr -s " + str(fs) + " -f " + str(fc) + " -g 20 -n " + str(TOTAL_BUFFER_SIZE) + " -"
+    
+    data = []
+    with subprocess.Popen(command, stdout = subprocess.PIPE, shell = True) as proc:
+        data = proc.stdout.read()  # Read all at once
 
-    while (len(rxBuffs) < TOTAL_BUFFER_SIZE):
-        sr = sdr.readStream(rxStream, [rxBuff], len(rxBuff))
-
-        if sr.ret > 0:
-            rxBuffs = np.concatenate((rxBuffs, rxBuff[:sr.ret]))
-
-    sdr.deactivateStream(rxStream)
-    sdr.closeStream(rxStream)
-
-    samples = rxBuffs
+    dat = np.frombuffer(data, dtype = np.uint8)
+    samples = dat.astype(np.float32).view(np.complex64)
 
     if (args.debug):
         # use matplotlib to estimate and plot the PSD
