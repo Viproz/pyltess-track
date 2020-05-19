@@ -24,13 +24,11 @@ import json
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-import SoapySDR
+import subprocess
 
-from rtlsdr import RtlSdr
 from pylab import *
 from scipy import signal
 from sklearn.preprocessing import MinMaxScaler
-from SoapySDR import * #SOAPY_SDR_ constants
 
 from foc.pssdrift import *
 
@@ -70,6 +68,7 @@ if __name__ == "__main__":
     parser.add_argument("-g", '--gain', type=int, dest='gain',  help="Gain", default=gain)
     parser.add_argument("-t", "--time", type=int, dest='time', help="Seconds collecting data on LTE frequency", default=1)
     parser.add_argument("-j", '--json-file', dest='json', type=str,  help="Set the json file where results will be written", default=None)
+    parser.add_argument("-i", '--input-file', dest='inFile', type=str,  help="Use existing IQ file", default=None)
     parser.add_argument("-d", '--debug', dest='debug',  help="enable debug mode with plots", action='store_true', default=False)
     args = parser.parse_args()
 
@@ -89,54 +88,30 @@ if __name__ == "__main__":
     # Look at for SDR devices
 #     sdr_list = SoapySDR.Device.enumerate()
     index=0
-    sdr_devices = []
-    print("")
-    print("Available SDR devices: ")
 
-#     for sdr in sdr_list:
-#         if sdr["driver"]=="audio":
-#             pass
-#         else:
-#             print("   - [%d] %s (%s)" % (index, sdr["label"], sdr["driver"]) )
-#             sdr_devices.append(sdr)
-#             index=index+1
-# 
-#     if (len(sdr_devices)==0):
-#         print("[LTESSTRACK] Error, no devices found!")
-#         exit(-1)
-# 
-#     try:
-#         print("")
-#         if (args.source == -1):
-#             sdr_index=int(input('Choose SDR device [0-' + str(len(sdr_devices)-1) + ']: ' ))
-#         else:
-#             if (args.source > index-1):
-#                 print("[LTESSTRACK] Error: SDR Device index not found (max=%d)" % (index-1))
-#                 exit(-1)
-#             sdr_index=args.source
-#     except ValueError:
-#         print("[Error] Wrong SDR device index.")
-#         sys.exit(-1)
-
-#     args_sdr = sdr_devices[sdr_index]
-#     print("[LTESSTRACK] SDR device selected: " + args_sdr['driver'] + " - " + args_sdr['label'])
     # Set SDR and read samples
 
     TOTAL_BUFFER_SIZE = int(fs*args.time)
 
-    iters = int(ceil(TOTAL_BUFFER_SIZE/AUX_BUFFER_SIZE)) +1
-
     print("[LTESSTRACK] Reading for %d seconds at %d MHz with gain=%d ... " % (args.time, args.frequency, args.gain))
     acq_time = datetime.datetime.now()
     
-    command = "rtl_sdr -s " + str(fs) + " -f " + str(fc) + " -g 20 -n " + str(TOTAL_BUFFER_SIZE) + " -"
     
     data = []
-    with subprocess.Popen(command, stdout = subprocess.PIPE, shell = True) as proc:
-        data = proc.stdout.read()  # Read all at once
+    
+    if args.inFile is None: # Get fresh data
+        # This is unsafe, use rtlsdr wrapper instead
+        command = "rtl_sdr -s " + str(fs) + " -f " + str(fc) + " -g 20 -n " + str(TOTAL_BUFFER_SIZE) + " -"
+        print("Collecting data with the command: " + command)
+        with subprocess.Popen(command, stdout = subprocess.PIPE, shell = True) as proc:
+            data = proc.stdout.read()  # Read all at once
+    else: # Read the file given
+        with open(args.inFile, "rb") as iqFile:
+            data = iqFile.read(TOTAL_BUFFER_SIZE)
+            
 
-    dat = np.frombuffer(data, dtype = np.uint8)
-    samples = dat.astype(np.float32).view(np.complex64)
+    # Convert the sample to float complex values
+    samples = np.frombuffer(data, dtype = np.uint8).astype(np.float32).view(np.complex64)
 
     if (args.debug):
         # use matplotlib to estimate and plot the PSD
