@@ -18,29 +18,26 @@
 #   Authors: Roberto Calvo-Palomino <roberto.calvo [at] imdea [dot] org>
 #
 
-import os
 import argparse
 import json
 import datetime
 import numpy as np
-import matplotlib.pyplot as plt
 import subprocess
 
-from pylab import *
-from scipy import signal
-from sklearn.preprocessing import MinMaxScaler
-
-from foc.pssdrift import *
+from foc.pssdrift import get_drift
 
 import warnings
+from matplotlib.pyplot import psd, xlabel, ylabel, show
+
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
  # Load Zadoof sequencies
 def get_zadoof_seqs (filename):
     f = open(filename,'rb');
-    bdata = np.fromfile(f, '<f4')
-    cdata = np.vectorize(complex)(bdata[range(0,len(bdata),2)] , bdata[range(1,len(bdata),2)])
-    return cdata
+    dat = np.fromfile(f, dtype=np.float32)
+    dat = dat.astype(np.float32).view(np.complex64)
+    
+    return dat
 
 
 # Constants
@@ -140,7 +137,6 @@ if __name__ == "__main__":
     if (args.json):
         data={}
         data['datetime']=str(acq_time)
-        data['type']=args_sdr["label"] + " "  +args_sdr["driver"]
         data['fc']=args.frequency
         data['fs']=int(fs)
         data['gain']=args.gain

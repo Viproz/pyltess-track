@@ -18,7 +18,7 @@
 #   Authors: Roberto Calvo-Palomino <roberto.calvo [at] imdea [dot] org>
 #
 
-from pylab import *
+from pylab import diff, sys
 import numpy as np
 from scipy import signal
 import matplotlib.pyplot as plt
@@ -103,6 +103,8 @@ def analyze_drift (peaks, pss_step, degree, debug_plot = False ):
     x = np.array(list(range(0,len(peaks))))
     index_nones=[i for i,v in enumerate(pss_detected) if v == None]
     #index_nones=sorted(index_nones, reverse=True)
+    
+    print(index_nones)
 
     x = np.delete(x, index_nones)
     pss_detected = np.delete(pss_detected, index_nones)
@@ -185,9 +187,16 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
             l_peaks = peaks;
             seq = i
             th_win = th_learned
+            
+        if (debug_plot):
+            plt.figure()
+            plt.plot(x[0:training_samples])
+            plt.plot(peaks, x[peaks], "x")
+            #plt.xlim(0, 50000)
+            plt.show()
 
 
-    #print("Winning sequence: " + str(seq))
+    print("Winning sequence: " + str(seq))
     if ( len ( np.where (abs(diff(peaks)-pss_step) > 10 )[0]) > 0 ):
         print("[LTESSTRACK] Warning: Some PSS detected are further than %d +- 10 I/Q samples" % (pss_step))
 
@@ -210,8 +219,8 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
     last_valid_peak = l_peaks[valid_peaks[0][-1]+1]
     pss_detected = get_peaks(iq[last_valid_peak:], pss_step, search_window, resample_factor, z_sequences[seq], th_win, False)
 
-    #print(pss_detected)
-    #print(diff(pss_detected))
+    print(pss_detected)
+    print(diff(pss_detected))
     # ideal pss detection in the given time
     total_pss = int(len(iq)/pss_step) - int(last_valid_peak/pss_step)
     index_nones=[i for i,v in enumerate(pss_detected) if v == None]
