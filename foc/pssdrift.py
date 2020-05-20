@@ -118,9 +118,9 @@ def analyze_drift (peaks, pss_step, degree, debug_plot = False):
     if (debug_plot):
         t = pss_step / 1.92e6
         plt.figure(figsize = (14, 5))
-        plt.plot(x * t, cumm_drift, 'o', label = 'drift')
-        plt.plot(x * t, y, '.-' , label = 'slope')
-        plt.xlabel('time (seconds)')
+        plt.plot(x * t*1.92e6, cumm_drift, 'o', label = 'drift')
+        plt.plot(x * t*1.92e6, y, '.-' , label = 'slope')
+        plt.xlabel('time (samples)')
         plt.ylabel('cumm drift (IQ samples)')
         plt.legend(fontsize = 15)
         plt.grid(True)
@@ -136,7 +136,13 @@ def analyze_drift (peaks, pss_step, degree, debug_plot = False):
 #   - sequence_zadoff
 def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_factor, fs, debug_plot = False):
 
+
+    #===========================================================================
+    # Find the correct Zadoff root number with training data
+    #===========================================================================
+
     # training_samples = len(iq)
+    # preamble is 20 so get 20 PSS in the signal
     training_samples = pss_step * preamble
 
     # Correlation with the zadoff templates over the training samples
@@ -151,6 +157,7 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
     data = np.append(data, [np.reshape(abs(corr[1]), (-1, 1))], 0)
     data = np.append(data, [np.reshape(abs(corr[2]), (-1, 1))], 0)
 
+    # Normilize all the data together
     scaler.fit_transform(np.concatenate((data[0], data[1], data[2]), axis = 0))
 
     for i in range(0, data.shape[0]):
@@ -168,9 +175,10 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
         tmp_sorted = np.resize(tmp_sorted, (len(tmp_sorted),))
         tmp_sorted = np.sort(tmp_sorted)[::-1]  # reverse order (descendent)
 
+        # Set the threshold, in theory it should just be tmp_sorted[preamble] but there is some noise
         th_learned = (tmp_sorted[preamble] + tmp_sorted[preamble * 2 + 1]) / 2
-        th_learned = th_learned * 0.70
-        # print("th_learned[seq=%d]: %.2f" % (i,th_learned))
+        th_learned = th_learned * 0.7
+        print("th_learned[seq=%d]: %.2f vs theory %.2f" % (i,th_learned, tmp_sorted[preamble]))
         x = np.resize(data[i], len(data[i]),)
 
         peaks, _ = signal.find_peaks(x[0:training_samples], distance = (pss_step - search_window), height = th_learned)
@@ -205,6 +213,10 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
     if (len(valid_peaks) == 0 or len(valid_peaks[0]) == 0):
             print('[LTESSTRACK] Error: No valid PSS at the begining.')
             sys.exit(-1)
+            
+    #===========================================================================
+    # Apply the found sequence to the rest of the IQ samples
+    #===========================================================================
 
     last_valid_peak = l_peaks[valid_peaks[0][-1] + 1]
     pss_detected = get_peaks(iq[last_valid_peak:], pss_step, search_window, resample_factor, z_sequences[seq], th_win, False)

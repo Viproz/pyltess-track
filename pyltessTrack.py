@@ -28,6 +28,8 @@ from foc.pssdrift import get_drift
 
 import warnings
 from matplotlib.pyplot import psd, xlabel, ylabel, show
+from commpy import sequences
+from numpy.dual import ifft
 
 warnings.simplefilter(action = 'ignore', category = FutureWarning)
 
@@ -40,11 +42,25 @@ def get_zadoff_seqs (filename):
 
     return dat
 
+def generateZadoffTimeDomainSeq(seqID):
+    fDat = sequences.zcsequence(seqID, 63)
+    # fDat is in the frequency domain, convert it to time domain
+    
+    # This code was taken from JiaoXianjun/LTE-Cell-Scanner in tle_lib.cpp
+    idft_in=np.concatenate((np.zeros(1, np.complex64),fDat[31:61+1],np.zeros(65, np.complex64),fDat[0:30+1]))
+    td=ifft(idft_in)*np.sqrt(128.0/62.0)*np.sqrt(128.);
+    
+    return np.concatenate((td[119:127+1], td))
+    
+    return td
 
 # Constants
 VERSION = "1.0-rc1"
 RESAMPLE_FACTOR = 20
+
+# It runs every 5ms so fs*0.005
 PSS_STEP = 9600
+
 SEARCH_WINDOW = 150
 PREAMBLE = 30
 
@@ -127,6 +143,8 @@ if __name__ == "__main__":
         Z_sequences = np.array([get_zadoff_seqs("/usr/share/pyltesstrack/lte/25-Zadoff.bin"), \
         get_zadoff_seqs("/usr/share/pyltesstrack/lte/29-Zadoff.bin"), \
         get_zadoff_seqs("/usr/share/pyltesstrack/lte/34-Zadoff.bin")])
+        
+    Z_sequences = [generateZadoffTimeDomainSeq(seqID) for seqID in [25, 29, 34]]
 
     # Get drift by analyzing the PSS time of arrival
     [PPM, delta_f, confidence] = get_drift(samples, Z_sequences, PREAMBLE, PSS_STEP, SEARCH_WINDOW, RESAMPLE_FACTOR, fs, debug_plot = args.debug)
