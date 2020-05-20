@@ -23,6 +23,7 @@ import json
 import datetime
 import numpy as np
 import subprocess
+import matplotlib.pyplot as plt
 
 from foc.pssdrift import get_drift
 
@@ -56,12 +57,12 @@ def generateZadoffTimeDomainSeq(seqID):
 
 # Constants
 VERSION = "1.0-rc1"
-RESAMPLE_FACTOR = 20
+RESAMPLE_FACTOR = 1
 
 # It runs every 5ms so fs*0.005
 PSS_STEP = 9600
 
-SEARCH_WINDOW = 150
+SEARCH_WINDOW = 254*2
 PREAMBLE = 30
 
 # variables
@@ -120,7 +121,7 @@ if __name__ == "__main__":
             data = proc.stdout.read()  # Read all at once
     else:  # Read the file given
         with open(args.inFile, "rb") as iqFile:
-            data = iqFile.read(TOTAL_BUFFER_SIZE)
+            data = iqFile.read(TOTAL_BUFFER_SIZE*2) # Need to read 2x since we divide by two to convert to complex
 
     # Convert the sample to float complex values
     samples = np.frombuffer(data, dtype = np.uint8).astype(np.float32).view(np.complex64)
@@ -130,7 +131,7 @@ if __name__ == "__main__":
         psd(samples, NFFT = 1024, Fs = fs / 1e6, Fc = fc / 1e6)
         xlabel('Frequency (MHz)')
         ylabel('Relative power (dB)')
-        show()
+#         show()
 
     print("[LTESSTRACK] Estimating local oscilator error .... ")
 
@@ -150,6 +151,9 @@ if __name__ == "__main__":
     [PPM, delta_f, confidence] = get_drift(samples, Z_sequences, PREAMBLE, PSS_STEP, SEARCH_WINDOW, RESAMPLE_FACTOR, fs, debug_plot = args.debug)
 
     print("[LTESSTRACK] Local oscilator error: %.8f PPM - [%.2f Hz], confidence=%.3f" % (PPM, delta_f, confidence))
+    
+    if args.debug:
+        plt.show()
 
     if (args.json):
         data = {}

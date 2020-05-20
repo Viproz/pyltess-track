@@ -23,6 +23,7 @@ import numpy as np
 from scipy import signal
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
+from scipy.stats import linregress
 
 scaler = MinMaxScaler(feature_range = (0, 1))
 
@@ -45,28 +46,67 @@ def get_peaks (iq, pss_step, search_window, resample_factor, z_sequence, th_corr
 
     while (end_i < len(iq)):
 
-        slice = iq[start_i:end_i]
+        iqSlice = iq[start_i:end_i]
 
         # scaler = MinMaxScaler(feature_range=(0, 1))
 
         # Correlation between template and slice signal
-        res_corr = abs(signal.correlate(slice, z_sequence))
+        res_corr = abs(signal.correlate(iqSlice, z_sequence, "valid"))
+        
+#         print(len(iqSlice))
+#         print(len(res_corr)+len(z_sequence))
+        
         # Normalization
         res_corr = np.reshape((res_corr), (-1, 1))
         res_corr = scaler.transform(res_corr)
         # Trick to speed up the whole process.
         # Upsampling the correlaiton result (thanks Fabio!)
-        res_corr_up = signal.resample(res_corr, len(res_corr) * resample_factor)
+#         res_corr_up = signal.resample(res_corr, len(res_corr) * resample_factor)
+        res_corr_up = res_corr
 
         # Find peaks in the correlation result
         x = np.resize(res_corr_up, len(res_corr_up),)
-        peaks, _ = signal.find_peaks(x, distance = (len(slice) * resample_factor) - 2, height = th_corr)
+
+        allPeaks, peaksData = signal.find_peaks(x, height = th_corr)
+        
+        heights = peaksData["peak_heights"]
+
+        peaksDesc = allPeaks[np.argsort(heights)[::-1]]
+        heightsDesc = heights[np.argsort(heights)[::-1]]
+        
+        # Take the peak closest to the center that is at max 5% smaller than the max one
+        validLimit = 0
+        for i in range(1, len(heightsDesc)):
+            if heightsDesc[i] < heightsDesc[0]*0.95:
+                validLimit = i
+                break
+                
+        peaksDesc = peaksDesc[0:validLimit]
+        heightsDesc = heightsDesc[0:validLimit]
+        
+        if(len(peaksDesc) == 1):
+            peaks = peaksDesc
+        else:
+            # Find the order in which the leftover peaks are closest to the center
+            newOrder = np.argsort(abs(peaksDesc-search_window+int(len(z_sequence) / 2.)))
+            peaks = [peaksDesc[newOrder[0]]]
+        
+
+
+
+        if False:
+            plt.figure()
+            plt.plot(x)
+            plt.plot(allPeaks, x[allPeaks], "o")
+            plt.plot(peaks, x[peaks], "x")
+            # plt.xlim(0, 50000)
+            plt.show()
 
         if (len(peaks) == 0):
-            # print("[WARNING] No peak detected, corr_factor=%.2f\n" % th_corr);
+            print("[WARNING] No peak detected, corr_factor=%.2f\n" % th_corr);
             peak_list.append(None)
         else:
-            p = start_i + (peaks[0]) / resample_factor - 1;
+            p = start_i + int(len(z_sequence) / 2.) + (peaks[0]) / resample_factor - 1;
             peak_list.append(p)
 
         # No peak detected in this iteration -> No PSS detected
@@ -109,24 +149,22 @@ def analyze_drift (peaks, pss_step, degree, debug_plot = False):
 
     pss_detected = pss_detected - pss_detected[0]
     cumm_drift = pss_detected - x * pss_step
+    
+    slope, intercept, r_value, p_value, std_err = linregress(x, cumm_drift)
 
-    p = np.polyfit(x.tolist(), cumm_drift.tolist(), 1)
-    y = np.polyval(p, x.tolist())
-
-    PPM = ((y[-1] - y[0]) / ((x[-1] - x[0]) * pss_step)) * 1e6;
+    PPM = slope/pss_step*1e6
 
     if (debug_plot):
-        t = pss_step / 1.92e6
         plt.figure(figsize = (14, 5))
-        plt.plot(x * t*1.92e6, cumm_drift, 'o', label = 'drift')
-        plt.plot(x * t*1.92e6, y, '.-' , label = 'slope')
+        plt.plot(x*pss_step, cumm_drift, 'o', label = 'drift')
+        plt.plot(x*pss_step, x*slope+intercept, '.-' , label = 'slope')
         plt.xlabel('time (samples)')
         plt.ylabel('cumm drift (IQ samples)')
         plt.legend(fontsize = 15)
         plt.grid(True)
-        plt.show()
+#         plt.show()
 
-    return PPM
+    return PPM, r_value**2
 
 
 # Get proper Zadoff sequence
@@ -146,9 +184,10 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
     training_samples = pss_step * preamble
 
     # Correlation with the zadoff templates over the training samples
-    corr = np.array([signal.correlate(iq[:training_samples], (z_sequences[0]))])
-    corr = np.append(corr, [np.array(signal.correlate(iq[:training_samples], (z_sequences[1])))], 0)
-    corr = np.append(corr, [np.array(signal.correlate(iq[:training_samples], (z_sequences[2])))], 0)
+    # Find only the valid data where we're not using zero padding
+    corr = np.array([signal.correlate(iq[:training_samples], (z_sequences[0]), "valid")])
+    corr = np.append(corr, [np.array(signal.correlate(iq[:training_samples], (z_sequences[1]), "valid"))], 0)
+    corr = np.append(corr, [np.array(signal.correlate(iq[:training_samples], (z_sequences[2]), "valid"))], 0)
 
     # Normalize correlation
     # scaler = MinMaxScaler(feature_range=(0, 1))
@@ -177,7 +216,7 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
 
         # Set the threshold, in theory it should just be tmp_sorted[preamble] but there is some noise
         th_learned = (tmp_sorted[preamble] + tmp_sorted[preamble * 2 + 1]) / 2
-        th_learned = th_learned * 0.7
+        th_learned = th_learned * 0.6
         print("th_learned[seq=%d]: %.2f vs theory %.2f" % (i,th_learned, tmp_sorted[preamble]))
         x = np.resize(data[i], len(data[i]),)
 
@@ -194,7 +233,7 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
             plt.plot(x[0:training_samples])
             plt.plot(peaks, x[peaks], "x")
             # plt.xlim(0, 50000)
-            plt.show()
+#             plt.show()
 
     print("Winning sequence: " + str(seq))
     if (len (np.where (abs(diff(peaks) - pss_step) > 10)[0]) > 0):
@@ -206,7 +245,7 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
         plt.plot(x[0:training_samples])
         plt.plot(l_peaks, x[l_peaks], "x")
         # plt.xlim(0, 50000)
-        plt.show()
+#         plt.show()
 
     # We assume peaks are properly located if they are in a range of 10 samples from the expected position
     valid_peaks = np.where ((np.diff(l_peaks) - pss_step) < 10)
@@ -218,19 +257,22 @@ def get_drift (iq, z_sequences, preamble, pss_step, search_window, resample_fact
     # Apply the found sequence to the rest of the IQ samples
     #===========================================================================
 
-    last_valid_peak = l_peaks[valid_peaks[0][-1] + 1]
+    last_valid_peak = l_peaks[valid_peaks[0][-1] + 1] + int(len(z_sequences) / 2.)
     pss_detected = get_peaks(iq[last_valid_peak:], pss_step, search_window, resample_factor, z_sequences[seq], th_win, False)
 
-    print(pss_detected)
-    print(diff(pss_detected))
+    print("Total length of " + str(len(iq)) + " but " + str(len(iq)-last_valid_peak) + " samples left for drift.")
+
+#     print(pss_detected)
+#     print(diff(pss_detected))
     # ideal pss detection in the given time
     total_pss = int(len(iq) / pss_step) - int(last_valid_peak / pss_step)
     index_nones = [i for i, v in enumerate(pss_detected) if v == None]
+    print(index_nones)
     nan_pss = len(index_nones)
     confidence = (len(pss_detected) - nan_pss) / total_pss
 
-    PPM = analyze_drift(pss_detected, pss_step, 1, debug_plot)
+    PPM, r2 = analyze_drift(pss_detected, pss_step, 1, debug_plot)
 
     delta_f = (PPM * 1e-6) * fs;
 
-    return PPM, delta_f, confidence
+    return PPM, delta_f, min(r2, confidence)
